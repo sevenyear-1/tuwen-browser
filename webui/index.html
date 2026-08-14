@@ -1,0 +1,455 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>图文浏览器</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: "Microsoft YaHei", "PingFang SC", "Helvetica Neue", Arial, sans-serif;
+    background: #f5f6f8;
+    color: #333;
+    min-height: 100vh;
+  }
+  .header {
+    background: #fff;
+    border-bottom: 1px solid #e8e8e8;
+    padding: 16px 0;
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    box-shadow: 0 1px 6px rgba(0,0,0,.04);
+  }
+  .header-inner {
+    max-width: 1100px;          /* 与内容区同宽，整体居中 */
+    margin: 0 auto;
+    padding: 0 20px;
+    display: flex;
+    align-items: center;
+    gap: 18px;
+  }
+  .logo { font-size: 22px; font-weight: 700; color: #1a1a1a; display: flex; align-items: center; gap: 8px; white-space: nowrap; }
+  .logo .icon { font-size: 24px; }
+  .search-box {
+    flex: 1;
+    max-width: 480px;
+    display: flex;
+    align-items: center;
+    gap: 0;
+    border: 1px solid #d9dee6;
+    border-radius: 10px;
+    overflow: hidden;
+    background: #fff;
+  }
+  .search-box input {
+    flex: 1;
+    border: none;
+    outline: none;
+    padding: 9px 14px;
+    font-size: 14px;
+    min-width: 0;
+  }
+  .search-box button {
+    background: #3b82f6;
+    color: #fff;
+    border: none;
+    padding: 9px 18px;
+    font-size: 14px;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  .search-box button:hover { background: #2f6fe0; }
+  .header .right { margin-left: auto; display: flex; align-items: center; gap: 10px; }
+  .btn-new {
+    background: #3b82f6;
+    color: #fff;
+    border: none;
+    border-radius: 8px;
+    padding: 9px 20px;
+    font-size: 15px;
+    cursor: pointer;
+    transition: background .15s;
+    white-space: nowrap;
+  }
+  .btn-new:hover { background: #2f6fe0; }
+  .main { max-width: 1100px; margin: 0 auto; padding: 24px 20px 40px; }
+  .result-info { font-size: 13px; color: #8a8f99; margin-bottom: 12px; }
+  .list { display: flex; flex-direction: column; gap: 14px; }
+  .card {
+    background: #fff;
+    border-radius: 12px;
+    box-shadow: 0 1px 4px rgba(0,0,0,.06);
+    border: 1px solid #ececec;
+    display: flex;
+    align-items: stretch;
+    gap: 18px;
+    padding: 16px 18px;
+    cursor: pointer;
+    transition: box-shadow .15s, border-color .15s;
+    user-select: none;
+  }
+  .card:hover { box-shadow: 0 6px 18px rgba(0,0,0,.10); border-color: #3b82f6; }
+  .card-main {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    justify-content: center;
+  }
+  .card-thumb {
+    width: 300px;
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    align-self: center;
+  }
+  .thumb { width: 100%; display: flex; align-items: flex-start; gap: 4px; }
+  .thumb .titem {
+    position: relative;
+    flex: 1 1 0;
+    min-width: 0;
+    aspect-ratio: 1 / 1;
+    overflow: hidden;
+    background: #eef1f6;
+    border: 1px solid #e5e8ee;
+    border-radius: 6px;
+  }
+  .thumb img, .thumb video {
+    width: 100%; height: 100%; object-fit: cover; display: block;
+  }
+  .thumb .placeholder { font-size: 22px; color: #9db1cc; margin: auto; }
+  .thumb .vtag {
+    position: absolute; left: 0; right: 0; bottom: 0;
+    background: rgba(0,0,0,.6); color: #fff;
+    font-size: 9px; line-height: 1.5; text-align: center; letter-spacing: .5px;
+  }
+  .thumb .vtag::before { content: "▶ "; }
+  .thumb .gftag {
+    position: absolute; top: 2px; right: 2px;
+    background: rgba(155, 89, 182, .92); color: #fff;
+    font-size: 8px; font-weight: 700; padding: 1px 4px; border-radius: 3px; letter-spacing: .5px;
+  }
+  .card-title { font-size: 17px; font-weight: 600; color: #1a1a1a; line-height: 1.45;
+    display: -webkit-box; -webkit-line-clamp: 1; -webkit-box-orient: vertical; overflow: hidden; }
+  .card-summary { font-size: 13px; color: #8a8f99; line-height: 1.6;
+    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  .card-foot { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; margin-top: 2px; }
+  .card-time { font-size: 12px; color: #b0b4bd; }
+  .card-hint { font-size: 12px; color: #9aa1ad; }
+  .empty { text-align: center; padding: 90px 20px; color: #9aa1ad; }
+  .empty .big { font-size: 52px; margin-bottom: 14px; }
+  .empty p { font-size: 15px; margin-bottom: 22px; }
+  .empty .btn-new { display: inline-block; text-decoration: none; }
+  /* 分页 */
+  .pager {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    margin-top: 26px;
+    flex-wrap: wrap;
+  }
+  .pager button {
+    border: 1px solid #d9dee6;
+    background: #fff;
+    color: #4a5568;
+    border-radius: 7px;
+    padding: 6px 12px;
+    font-size: 13px;
+    cursor: pointer;
+    transition: background .12s;
+  }
+  .pager button:hover:not(:disabled) { background: #eef2f8; }
+  .pager button:disabled { color: #c0c6cf; cursor: not-allowed; }
+  .pager button.active { background: #3b82f6; border-color: #3b82f6; color: #fff; }
+  .pager .pg-info { font-size: 13px; color: #8a8f99; margin: 0 6px; }
+  .pager .jump { display: flex; align-items: center; gap: 6px; font-size: 13px; color: #4a5568; }
+  .pager .jump input {
+    width: 56px;
+    border: 1px solid #d9dee6;
+    border-radius: 7px;
+    padding: 5px 8px;
+    font-size: 13px;
+    text-align: center;
+    outline: none;
+  }
+  .pager .jump input:focus { border-color: #3b82f6; }
+  .toast {
+    position: fixed; top: 18px; left: 50%; transform: translateX(-50%);
+    background: #1f2937; color: #fff; padding: 10px 22px; border-radius: 8px;
+    font-size: 14px; opacity: 0; transition: opacity .2s; pointer-events: none; z-index: 99;
+  }
+  .toast.show { opacity: 1; }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div class="header-inner">
+    <div class="logo"><span class="icon">📖</span>图文浏览器</div>
+    <div class="search-box">
+      <input type="text" id="searchInput" placeholder="搜索标题 / 正文全文…" maxlength="100">
+      <button onclick="doSearch()">搜索</button>
+    </div>
+    <div class="right">
+      <button class="btn-new" onclick="createArticle()">＋ 新建图文</button>
+    </div>
+  </div>
+</div>
+
+<div class="main">
+  <div class="result-info" id="resultInfo" style="display:none;"></div>
+  <div class="list" id="grid"></div>
+  <div class="empty" id="empty" style="display:none;">
+    <div class="big">📝</div>
+    <p id="emptyText">还没有任何图文文章，点击右上角「新建图文」开始创作</p>
+  </div>
+  <div class="pager" id="pager" style="display:none;">
+    <button id="prevBtn" onclick="gotoPage(curPage - 1)">‹ 上一页</button>
+    <div id="pageBtns"></div>
+    <button id="nextBtn" onclick="gotoPage(curPage + 1)">下一页 ›</button>
+    <div class="jump">
+      <span>跳至</span>
+      <input type="number" id="jumpInput" min="1">
+      <span>页</span>
+      <button onclick="jumpPage()">GO</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+'use strict';
+
+const PAGE_SIZE = 20;
+const grid = document.getElementById('grid');
+const emptyEl = document.getElementById('empty');
+const emptyText = document.getElementById('emptyText');
+const pager = document.getElementById('pager');
+const resultInfo = document.getElementById('resultInfo');
+
+let curPage = 1;
+let totalPages = 1;
+let curKeyword = '';
+let toastTimer = null;
+
+function showToast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => t.classList.remove('show'), 2000);
+}
+
+/** 搜索：回车或按钮触发 */
+function doSearch() {
+  curKeyword = document.getElementById('searchInput').value.trim();
+  gotoPage(1);
+}
+document.getElementById('searchInput').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') doSearch();
+});
+document.getElementById('jumpInput').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') jumpPage();
+});
+
+/** 跳转到指定页 */
+function gotoPage(page) {
+  if (page < 1 || page > totalPages) return;
+  curPage = page;
+  loadList();
+}
+
+/** 输入页码跳转 */
+function jumpPage() {
+  const v = parseInt(document.getElementById('jumpInput').value, 10);
+  if (!v || v < 1) { showToast('请输入有效页码'); return; }
+  gotoPage(v);
+}
+
+/** 拉取文章列表并渲染（分页 + 搜索） */
+async function loadList() {
+  grid.innerHTML = '';
+  let json;
+  try {
+    const params = new URLSearchParams({ page: curPage, pageSize: PAGE_SIZE });
+    if (curKeyword) params.set('keyword', curKeyword);
+    const res = await fetch('/api/article/list?' + params.toString());
+    json = await res.json();
+  } catch (e) {
+    showToast('加载失败：' + e.message);
+    return;
+  }
+  const articles = (json && json.articles) || [];
+  totalPages = Math.max(1, json.totalPages || 1);
+
+  // 结果信息
+  if (curKeyword) {
+    resultInfo.style.display = 'block';
+    resultInfo.textContent = '搜索「' + curKeyword + '」共 ' + json.total + ' 条结果';
+  } else {
+    resultInfo.style.display = 'none';
+  }
+
+  // 空态
+  if (!articles.length) {
+    emptyEl.style.display = 'block';
+    emptyText.textContent = curKeyword
+      ? '没有找到与「' + curKeyword + '」相关的文章'
+      : '还没有任何图文文章，点击右上角「新建图文」开始创作';
+    pager.style.display = 'none';
+    return;
+  }
+  emptyEl.style.display = 'none';
+  for (const a of articles) grid.appendChild(cardEl(a));
+  renderPager();
+}
+
+/** 渲染分页控件 */
+function renderPager() {
+  pager.style.display = 'flex';
+  document.getElementById('prevBtn').disabled = curPage <= 1;
+  document.getElementById('nextBtn').disabled = curPage >= totalPages;
+
+  const wrap = document.getElementById('pageBtns');
+  wrap.innerHTML = '';
+  const show = pageList(curPage, totalPages);
+  for (const p of show) {
+    if (p === '…') {
+      const s = document.createElement('span');
+      s.className = 'pg-info';
+      s.textContent = '…';
+      wrap.appendChild(s);
+      continue;
+    }
+    const b = document.createElement('button');
+    b.textContent = p;
+    if (p === curPage) b.classList.add('active');
+    b.onclick = () => gotoPage(p);
+    wrap.appendChild(b);
+  }
+  document.getElementById('jumpInput').value = curPage;
+}
+
+/** 生成页码序列（最多7个，含省略号） */
+function pageList(cur, total) {
+  if (total <= 7) {
+    const r = [];
+    for (let i = 1; i <= total; i++) r.push(i);
+    return r;
+  }
+  const set = new Set([1, cur - 1, cur, cur + 1, total]);
+  const arr = Array.from(set).filter((n) => n >= 1 && n <= total).sort((a, b) => a - b);
+  const out = [];
+  let prev = 0;
+  for (const n of arr) {
+    if (n - prev > 1) out.push('…');
+    out.push(n);
+    prev = n;
+  }
+  return out;
+}
+
+/** 构建缩略图区（横排小方格，最多5个；无媒体返回 null 不渲染） */
+function buildThumb(a) {
+  const media = a.media || [];
+  if (!media.length) return null;
+  const thumb = document.createElement('div');
+  thumb.className = 'thumb';
+  for (const md of media) {
+    const item = document.createElement('div');
+    item.className = 'titem';
+    const src = '/static/' + encodeURIComponent(a.id) + '/' + md.src;
+    if (md.type === 'video') {
+      const v = document.createElement('video');
+      v.src = src;
+      v.preload = 'metadata';
+      v.muted = true;
+      v.playsInline = true;
+      v.onerror = () => item.replaceWith(placeholderEl());
+      const tag = document.createElement('div');
+      tag.className = 'vtag';
+      tag.textContent = '视频';
+      item.append(v, tag);
+    } else {
+      const img = document.createElement('img');
+      img.src = src;
+      img.alt = '';
+      img.loading = 'lazy';
+      img.onerror = () => item.replaceWith(placeholderEl());
+      item.appendChild(img);
+      if (md.format === 'gif') {
+        const tag = document.createElement('div');
+        tag.className = 'gftag';
+        tag.textContent = 'GIF';
+        item.appendChild(tag);
+      }
+    }
+    thumb.appendChild(item);
+  }
+  return thumb;
+}
+
+/** 构建文章卡片：双击整卡打开阅读页（新标签） */
+function cardEl(a) {
+  const card = document.createElement('div');
+  card.className = 'card';
+  card.title = '双击打开阅读';
+  card.ondblclick = () => { window.open('/view.html?id=' + a.id, '_blank'); };
+
+  const main = document.createElement('div');
+  main.className = 'card-main';
+  const title = document.createElement('div');
+  title.className = 'card-title';
+  title.textContent = a.title || '未命名文章';
+  const summary = document.createElement('div');
+  summary.className = 'card-summary';
+  summary.textContent = a.summary || '（暂无摘要）';
+  const foot = document.createElement('div');
+  foot.className = 'card-foot';
+  const time = document.createElement('div');
+  time.className = 'card-time';
+  time.textContent = '最后修改 ' + (a.updateTime || '-') + ' · 创建 ' + (a.createTime || '-');
+  const hint = document.createElement('div');
+  hint.className = 'card-hint';
+  hint.textContent = '双击卡片打开阅读';
+  foot.append(time, hint);
+  main.append(title, summary, foot);
+  card.appendChild(main);
+
+  const thumb = buildThumb(a);
+  if (thumb) {
+    const wrap = document.createElement('div');
+    wrap.className = 'card-thumb';
+    wrap.appendChild(thumb);
+    card.appendChild(wrap);
+  }
+  return card;
+}
+
+function placeholderEl() {
+  const p = document.createElement('div');
+  p.className = 'placeholder';
+  p.textContent = '📄';
+  return p;
+}
+
+/** 新建文章 → 进入编辑器 */
+async function createArticle() {
+  try {
+    const res = await fetch('/api/article/create', { method: 'POST' });
+    const json = await res.json();
+    if (!json.ok) throw new Error(json.error || '创建失败');
+    location.href = '/editor.html?id=' + json.id;
+  } catch (e) {
+    showToast('创建失败：' + e.message);
+  }
+}
+
+loadList();
+</script>
+</body>
+</html>

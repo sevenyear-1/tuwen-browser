@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>阅读 - 图文浏览器</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: "Microsoft YaHei", "PingFang SC", "Helvetica Neue", Arial, sans-serif;
+    background: #f5f6f8;
+    color: #333;
+  }
+  .topbar {
+    background: #fff;
+    border-bottom: 1px solid #e8e8e8;
+    padding: 12px 20px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    position: sticky;
+    top: 0;
+    z-index: 10;
+  }
+  .topbar .spacer { flex: 1; }
+  .topbar .tag { font-size: 13px; color: #8a8f99; }
+  .btn {
+    background: #fff; border: 1px solid #ddd; border-radius: 8px;
+    padding: 8px 16px; font-size: 14px; color: #555; cursor: pointer;
+  }
+  .btn:hover { background: #f5f6f8; }
+  .btn.primary { background: #3b82f6; border-color: #3b82f6; color: #fff; }
+  .btn.primary:hover { background: #2f6fe0; }
+  .btn.danger { background: #fff; color: #e05a5a; border-color: #f3cdcd; }
+  .btn.danger:hover { background: #fdf1f1; }
+
+  .article-wrap {
+    max-width: 860px;
+    margin: 32px auto 80px;
+    padding: 0 20px;
+  }
+  .article {
+    background: #fff;
+    border-radius: 12px;
+    border: 1px solid #ececec;
+    box-shadow: 0 1px 4px rgba(0,0,0,.06);
+    padding: 40px 48px;
+  }
+  .article h1.title { font-size: 28px; line-height: 1.4; color: #1a1a1a; margin-bottom: 10px; }
+  .article .meta { font-size: 13px; color: #a0a5ae; border-bottom: 1px solid #f0f0f0; padding-bottom: 16px; margin-bottom: 20px; }
+  .article .content { font-size: 16px; line-height: 1.9; }
+  .article .content img { max-width: 100%; height: auto; }
+  .article .content video { max-width: 100%; height: auto; display: block; margin: 8px 0; }
+  .article .content h1, .article .content h2, .article .content h3,
+  .article .content h4 { line-height: 1.4; margin: 1.2em 0 0.6em; color: #1a1a1a; }
+  .article .content blockquote { border-left: 4px solid #ddd; margin: 12px 0; padding: 4px 14px; color: #666; background: #fafafa; }
+  .article .content pre { background: #f6f8fa; padding: 12px 14px; overflow-x: auto; border-radius: 6px; }
+  .article .content code { background: #f6f8fa; padding: 2px 5px; border-radius: 4px; font-size: 0.92em; }
+  .article .content pre code { background: none; padding: 0; }
+  .article .content table { border-collapse: collapse; margin: 12px 0; }
+  .article .content td, .article .content th { border: 1px solid #ddd; padding: 6px 12px; }
+  .article .content a { color: #2b6cb0; }
+  .notfound { text-align: center; padding: 120px 20px; color: #9aa1ad; font-size: 16px; }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <button class="btn" onclick="location.href='/index.html'">← 返回主页</button>
+  <div class="spacer"></div>
+  <button class="btn danger" onclick="delArticle()">🗑 删除</button>
+  <button class="btn primary" onclick="edit()">✏️ 编辑</button>
+</div>
+
+<div class="article-wrap">
+  <div class="article" id="article">
+    <h1 class="title" id="title"></h1>
+    <div class="meta" id="meta"></div>
+    <div class="content" id="content"></div>
+  </div>
+</div>
+
+<div class="notfound" id="notfound" style="display:none;">文章不存在或已被删除</div>
+
+<script>
+'use strict';
+
+const articleId = new URLSearchParams(location.search).get('id');
+const articleEl = document.getElementById('article');
+
+function ensureBase(id) {
+  let base = document.querySelector('base');
+  if (!base) {
+    base = document.createElement('base');
+    document.head.appendChild(base);
+  }
+  // 使正文中的相对路径 media/xxx.jpg 正确解析到 /static/{id}/media/xxx.jpg
+  base.href = '/static/' + id + '/';
+}
+
+function edit() {
+  location.href = '/editor.html?id=' + articleId;
+}
+
+/** 删除文章（二次确认，成功后回主页） */
+async function delArticle() {
+  if (!confirm('确定要删除这篇文章吗？\n删除后文章、图片、视频将一并移除，且无法恢复！')) return;
+  try {
+    const res = await fetch('/api/article/delete/' + articleId, { method: 'POST' });
+    const json = await res.json();
+    if (!json.ok) throw new Error(json.error || '删除失败');
+    location.href = '/index.html';
+  } catch (e) {
+    alert('删除失败：' + e.message);
+  }
+}
+
+async function load() {
+  if (!articleId) {
+    articleEl.style.display = 'none';
+    document.getElementById('notfound').style.display = 'block';
+    return;
+  }
+  ensureBase(articleId);
+
+  let json;
+  try {
+    const res = await fetch('/api/article/' + articleId);
+    json = await res.json();
+  } catch (e) {
+    articleEl.style.display = 'none';
+    document.getElementById('notfound').style.display = 'block';
+    return;
+  }
+  if (!json.ok || !json.meta) {
+    articleEl.style.display = 'none';
+    document.getElementById('notfound').style.display = 'block';
+    return;
+  }
+  const meta = json.meta;
+  document.title = (meta.title || '未命名文章') + ' - 图文浏览器';
+  document.getElementById('title').textContent = meta.title || '未命名文章';
+  document.getElementById('meta').textContent =
+    '创建于 ' + (meta.createTime || '-') + ' · 更新于 ' + (meta.updateTime || '-');
+  document.getElementById('content').innerHTML = json.content || '';
+}
+
+load();
+</script>
+</body>
+</html>

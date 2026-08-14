@@ -1,0 +1,400 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>编辑器 - 图文浏览器</title>
+<link rel="stylesheet" href="/vendor/quill.snow.css">
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: "Microsoft YaHei", "PingFang SC", "Helvetica Neue", Arial, sans-serif;
+    background: #f5f6f8;
+    color: #333;
+  }
+  .topbar {
+    background: #fff;
+    border-bottom: 1px solid #e8e8e8;
+    padding: 10px 20px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    position: sticky;
+    top: 0;
+    z-index: 30;
+    box-shadow: 0 1px 6px rgba(0,0,0,.04);
+  }
+  .topbar .back {
+    background: none; border: 1px solid #ddd; border-radius: 8px;
+    padding: 8px 14px; font-size: 14px; color: #555; cursor: pointer; white-space: nowrap;
+  }
+  .topbar .back:hover { background: #f5f6f8; }
+  .topbar .spacer { flex: 1; }
+  .topbar .status { font-size: 13px; color: #8a8f99; white-space: nowrap; }
+  /* 标题独立行：吸顶固定，不与返回/保存同一栏 */
+  .title-row {
+    position: sticky;
+    top: 58px;             /* topbar 高度 */
+    z-index: 26;
+    background: #fff;
+    border-bottom: 1px solid #e8e8e8;
+    padding: 12px 20px;
+    box-shadow: 0 1px 6px rgba(0,0,0,.04);
+  }
+  .tb-title {
+    display: block;
+    width: 100%;
+    border: 1px solid #d9dee6;
+    border-radius: 10px;
+    padding: 10px 16px;
+    font-size: 19px;
+    font-weight: 600;
+    color: #1a1a1a;
+    background: #f7f9fc;
+    outline: none;
+    box-sizing: border-box;
+    text-align: center;      /* 标题居中 */
+  }
+  .tb-title:focus { border-color: #3b82f6; background: #fff; box-shadow: 0 0 0 3px rgba(59,130,246,.12); }
+  .btn-save {
+    background: #3b82f6; color: #fff; border: none; border-radius: 8px;
+    padding: 9px 24px; font-size: 15px; font-weight: 600; cursor: pointer; white-space: nowrap;
+  }
+  .btn-save:hover { background: #2f6fe0; }
+  .btn-save:disabled { background: #9db9ee; cursor: not-allowed; }
+
+  .form-area {
+    max-width: 1000px;
+    margin: 24px auto 60px;
+    padding: 0 20px;
+  }
+  .card {
+    background: #fff;
+    border-radius: 12px;
+    border: 1px solid #ececec;
+    box-shadow: 0 1px 4px rgba(0,0,0,.06);
+    padding: 24px;
+  }
+  #editor { min-height: 420px; font-size: 15px; }
+  #editor .ql-editor { min-height: 420px; line-height: 1.8; }
+  .hint { font-size: 12px; color: #9aa1ad; margin-top: 10px; line-height: 1.7; }
+  .hint b { color: #6b7280; }
+  /* Quill 工具栏吸顶：滚动看长文时插入按钮始终可见 */
+  .ql-toolbar.ql-snow {
+    position: sticky;
+    top: 126px;          /* topbar(58px) + 标题行(~68px) */
+    z-index: 25;
+    background: #fff;
+    border-radius: 8px 8px 0 0;
+    box-shadow: 0 2px 8px rgba(0,0,0,.06);
+  }
+  .ql-container.ql-snow { border-radius: 0 0 8px 8px; }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <button class="back" onclick="location.href='/index.html'">← 返回主页</button>
+  <div class="spacer"></div>
+  <span class="status" id="statusText"></span>
+  <button class="btn-save" id="saveBtn" onclick="saveArticle()">💾 保存图文</button>
+</div>
+
+<div class="title-row">
+  <input type="text" id="titleInput" class="tb-title" placeholder="请输入文章标题" maxlength="200">
+</div>
+
+<div class="form-area">
+  <div class="card">
+    <div id="editor"></div>
+    <div class="hint">
+      📌 <b>图片</b>：直接粘贴（Ctrl+V）或拖拽图片到编辑区即可自动上传<br>
+      📌 <b>视频</b>：点击工具栏「本地视频」按钮选择 MP4 文件，或直接拖拽 MP4 到编辑区<br>
+      📌 所有资源自动保存到本文档的 media 文件夹，保存后支持双击 content.html 离线阅读
+    </div>
+  </div>
+</div>
+
+<script src="/vendor/quill.js"></script>
+<script>
+'use strict';
+
+/* ================================================================
+ * 文章 ID 与 <base> 处理
+ * ================================================================ */
+
+let articleId = new URLSearchParams(location.search).get('id');
+
+function ensureBase(id) {
+  let base = document.querySelector('base');
+  if (!base) {
+    base = document.createElement('base');
+    document.head.appendChild(base);
+  }
+  // 使正文中的相对路径 media/xxx.jpg 在服务模式下也能正确预览
+  base.href = '/static/' + id + '/';
+}
+
+/* ================================================================
+ * Quill 初始化与自定义格式
+ * ================================================================ */
+
+// 覆盖图片 sanitize：放行相对路径（media/xxx.jpg），保证离线可用
+const ImageBlot = Quill.import('formats/image');
+ImageBlot.sanitize = function (url) { return url; };
+Quill.register(ImageBlot, true);
+
+// 自定义本地视频格式：渲染为 <video controls>
+const BlockEmbed = Quill.import('blots/block/embed');
+class LocalVideo extends BlockEmbed {
+  static create(value) {
+    const node = super.create(value);
+    node.setAttribute('src', value);
+    node.setAttribute('controls', '');
+    node.setAttribute('controlslist', 'nodownload');
+    return node;
+  }
+  static value(node) {
+    return node.getAttribute('src');
+  }
+}
+LocalVideo.blotName = 'localVideo';
+LocalVideo.tagName = 'video';
+Quill.register(LocalVideo);
+
+const quill = new Quill('#editor', {
+  theme: 'snow',
+  placeholder: '开始撰写图文内容…',
+  modules: {
+    toolbar: {
+      container: [
+        [{ header: [1, 2, 3, false] }],
+        ['bold', 'italic', 'underline', 'strike'],
+        [{ color: [] }, { background: [] }],
+        [{ list: 'ordered' }, { list: 'bullet' }],
+        [{ align: [] }],
+        ['blockquote', 'code-block'],
+        ['link', 'image'],
+        ['localVideo'],
+        ['clean'],
+      ],
+      handlers: {
+        localVideo: () => pickVideoFile(),
+        // 覆盖 Quill 默认 image 按钮（默认会把图片读成 base64 内嵌），改为上传到 media 目录
+        image: () => pickImageFile(),
+      },
+    },
+  },
+});
+
+// 粘贴/加载内容时，把 <video> 标签识别为本地视频格式
+quill.clipboard.addMatcher('VIDEO', (node) => {
+  const src = node.getAttribute('src');
+  if (!src || !src.trim()) return null;
+  return { localVideo: src.trim() };
+});
+
+/* ================================================================
+ * 上传与插入
+ * ================================================================ */
+
+const statusText = document.getElementById('statusText');
+
+function setBusy(text) {
+  statusText.textContent = text || '';
+  document.getElementById('saveBtn').disabled = !!text;
+}
+
+/** 上传单个文件到当前文章 media 目录（XHR 流式上传，带进度提示） */
+function uploadFile(file) {
+  return new Promise((resolve, reject) => {
+    const fd = new FormData();
+    fd.append('file', file);
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', '/api/article/upload/' + articleId);
+    xhr.upload.onprogress = (e) => {
+      if (e.lengthComputable) {
+        const pct = Math.min(100, Math.round((e.loaded / e.total) * 100));
+        const fmt = (b) => (b >= 1024 * 1024 * 1024 ? (b / 1024 / 1024 / 1024).toFixed(2) + ' GB' : (b / 1024 / 1024).toFixed(1) + ' MB');
+        setBusy('上传中 ' + file.name + ' (' + pct + '%，' + fmt(e.loaded) + '/' + fmt(e.total) + ')…');
+      }
+    };
+    xhr.onload = () => {
+      try {
+        const json = JSON.parse(xhr.responseText);
+        if (!json.ok) throw new Error(json.error || '上传失败');
+        resolve(json.url); // 相对路径，如 media/img_xxx.jpg
+      } catch (e) {
+        reject(e);
+      }
+    };
+    xhr.onerror = () => reject(new Error('网络错误，上传中断'));
+    xhr.send(fd);
+  });
+}
+
+function insertImage(url) {
+  const sel = quill.getSelection(true);
+  const index = sel ? sel.index : quill.getLength();
+  quill.insertEmbed(index, 'image', url, 'user');
+  quill.setSelection(index + 1);
+}
+
+function insertVideo(url) {
+  const sel = quill.getSelection(true);
+  const index = sel ? sel.index : quill.getLength();
+  quill.insertEmbed(index, 'localVideo', url, 'user');
+  quill.setSelection(index + 1);
+}
+
+/** 最大上传大小：4GB */
+const MAX_FILE_SIZE = 4 * 1024 * 1024 * 1024;
+
+/** 处理一组文件（图片 → 插图，mp4 → 插视频；超 4GB 提前拦截） */
+async function handleFiles(files) {
+  for (const file of files) {
+    if (file.size > MAX_FILE_SIZE) {
+      alert('「' + file.name + '」大小 ' + (file.size / 1024 / 1024 / 1024).toFixed(2) + ' GB，超过 4GB 上限，无法上传');
+      continue;
+    }
+    const isImage = file.type.startsWith('image/');
+    const isVideo = file.type === 'video/mp4' || /\.mp4$/i.test(file.name);
+    if (!isImage && !isVideo) {
+      alert('仅支持图片和 MP4 视频文件：' + file.name);
+      continue;
+    }
+    setBusy('上传中：' + file.name + ' …');
+    try {
+      const url = await uploadFile(file);
+      if (isImage) insertImage(url); else insertVideo(url);
+    } catch (e) {
+      alert('上传失败：' + e.message);
+    } finally {
+      setBusy('');
+    }
+  }
+}
+
+/** 粘贴图片拦截（阻止 Quill 默认转 base64，改为上传） */
+quill.root.addEventListener('paste', (e) => {
+  const items = e.clipboardData && e.clipboardData.items;
+  if (!items) return;
+  for (const item of items) {
+    if (item.kind === 'file' && item.type && item.type.startsWith('image/')) {
+      e.preventDefault();
+      e.stopPropagation();
+      const file = item.getAsFile();
+      if (file) handleFiles([file]);
+      return;
+    }
+  }
+}, true);
+
+/** 拖拽上传（图片 / MP4） */
+quill.root.addEventListener('dragover', (e) => e.preventDefault());
+quill.root.addEventListener('drop', (e) => {
+  e.preventDefault();
+  const files = e.dataTransfer && e.dataTransfer.files;
+  if (files && files.length) handleFiles(Array.from(files));
+});
+
+/** 选择 MP4 文件 */
+function pickVideoFile() {
+  const input = document.createElement('input');
+  input.type = 'file';
+  input.accept = '.mp4,video/mp4';
+  input.onchange = () => {
+    const f = input.files && input.files[0];
+    if (f) handleFiles([f]);
+  };
+  input.click();
+}
+
+/** 选择图片文件（工具栏「图片」按钮，走上传而非 base64；支持一次多选） */
+function pickImageFile() {
+  const input = document.createElement('input');
+  input.type = 'file';
+  input.accept = 'image/*';
+  input.multiple = true; // 一次性可多选（GIF/PNG/JPG 等）
+  input.onchange = () => {
+    if (input.files && input.files.length) handleFiles(Array.from(input.files));
+  };
+  input.click();
+}
+
+/* ================================================================
+ * 初始化：新建（先创建获得 id）/ 编辑已有
+ * ================================================================ */
+
+async function init() {
+  if (!articleId) {
+    // 新建：先创建空文章结构，拿到 id 后再编辑
+    setBusy('正在创建新文章…');
+    try {
+      const res = await fetch('/api/article/create', { method: 'POST' });
+      const json = await res.json();
+      if (!json.ok) throw new Error(json.error || '创建失败');
+      articleId = json.id;
+      history.replaceState(null, '', '/editor.html?id=' + articleId);
+    } catch (e) {
+      alert('创建失败：' + e.message);
+      location.href = '/index.html';
+      return;
+    }
+  }
+  ensureBase(articleId);
+
+  // 加载已有内容
+  try {
+    const res = await fetch('/api/article/' + articleId);
+    const json = await res.json();
+    if (!json.ok) throw new Error(json.error || '加载失败');
+    document.getElementById('titleInput').value = json.meta.title || '';
+    if (json.content) {
+      try {
+        // 用 convert + setContents 加载（比 dangerouslyPasteHTML 更稳）
+        const delta = quill.clipboard.convert({ html: json.content });
+        quill.setContents(delta);
+      } catch (e) {
+        // 兜底：直接注入 DOM，绕过 converter，避免个别标签引发异常
+        quill.root.innerHTML = json.content;
+        console.warn('convert 失败，已直接注入:', e);
+      }
+    }
+  } catch (e) {
+    alert('加载文章失败：' + e.message);
+  }
+  setBusy('');
+}
+
+/* ================================================================
+ * 保存
+ * ================================================================ */
+
+async function saveArticle() {
+  const title = document.getElementById('titleInput').value.trim() || '未命名文章';
+  const content = quill.root.innerHTML;
+  if (!content.replace(/<[^>]*>/g, '').trim()) {
+    if (!confirm('正文内容为空，确定要保存吗？')) return;
+  }
+  setBusy('保存中…');
+  try {
+    const res = await fetch('/api/article/save/' + articleId, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ title, content }),
+    });
+    const json = await res.json();
+    if (!json.ok) throw new Error(json.error || '保存失败');
+    alert('✅ 保存成功');
+    location.href = '/index.html';
+  } catch (e) {
+    alert('保存失败：' + e.message);
+    setBusy('');
+  }
+}
+
+init();
+</script>
+</body>
+</html>
