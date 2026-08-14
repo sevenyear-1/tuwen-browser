@@ -8,3 +8,4 @@ data/
 *.log
 Thumbs.db
 .DS_Store
+# 凭据缓存验证
