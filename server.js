@@ -133,18 +133,6 @@ function extractField(part) {
   };
 }
 
-/** 生成安全的媒体文件名：img_YYYYMMDD_HHmmss_xxx.ext */
-function safeMediaName(ext) {
-  const d = new Date();
-  const p = (n) => String(n).padStart(2, '0');
-  const stamp =
-    d.getFullYear() + p(d.getMonth() + 1) + p(d.getDate()) +
-    '_' + p(d.getHours()) + p(d.getMinutes()) + p(d.getSeconds());
-  const rand = Math.random().toString(36).slice(2, 6);
-  const prefix = ext === '.mp4' ? 'video' : 'img';
-  return `${prefix}_${stamp}_${rand}${ext}`;
-}
-
 /**
  * 流式 multipart 上传：边接收边写入磁盘，内存占用恒定（约几十 KB）。
  * 支持超大文件（上限 MAX_UPLOAD_SIZE = 1GB），超过则返回 413 并清理半截文件。
@@ -205,7 +193,7 @@ function handleStreamUpload(req, articleId, boundary) {
         settle(reject, Object.assign(new Error('文件类型与扩展名不符'), { status: 400 }));
         return false;
       }
-      fileName = safeMediaName(ext);
+      fileName = storage.resolveMediaName(articleId, fileMatch[1]);
       const dir = path.join(storage.ARTICLES_DIR, articleId, 'media');
       fs.mkdirSync(dir, { recursive: true });
       fileStream = fs.createWriteStream(path.join(dir, fileName));
