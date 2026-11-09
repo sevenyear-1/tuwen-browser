@@ -290,13 +290,26 @@ quill.root.addEventListener('paste', (e) => {
   }
 }, true);
 
-/** 拖拽上传（图片 / MP4） */
+/** 拖拽时阻止浏览器默认"打开文件"行为，确保 drop 事件能正常触发 */
 quill.root.addEventListener('dragover', (e) => e.preventDefault());
-quill.root.addEventListener('drop', (e) => {
-  e.preventDefault();
-  const files = e.dataTransfer && e.dataTransfer.files;
-  if (files && files.length) handleFiles(Array.from(files));
-});
+
+/**
+ * 接管 Quill 的文件拖拽上传，避免重复插入：
+ * Quill 默认会把拖入的图片(png/jpeg)读成 base64 内嵌到正文，
+ * 而我们自己的上传逻辑又会插入一张上传到 media 目录的图片，
+ * 于是"拖一张显示两张、文件夹里只有一张"。
+ * 这里覆盖 Quill Uploader 的 upload 方法，把所有拖入的媒体交给 handleFiles 上传，
+ * 由它上传到 media 目录并插入相对路径，全程只插入一次。
+ */
+(function patchQuillUploader() {
+  const Uploader = Quill.import('modules/uploader');
+  Uploader.prototype.upload = function (range, files) {
+    const media = Array.from(files || []).filter((f) =>
+      f.type.startsWith('image/') || f.type === 'video/mp4' || /\.mp4$/i.test(f.name)
+    );
+    if (media.length) handleFiles(media);
+  };
+})();
 
 /** 选择 MP4 文件 */
 function pickVideoFile() {
